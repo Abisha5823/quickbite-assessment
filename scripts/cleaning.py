@@ -200,153 +200,246 @@ def clean_primary_key(df, key_column, table_name):
 # 7. STANDARDIZE CATEGORY VALUES
 # ============================================================
 
-def standardize_category(series, mapping):
-
-    values = series.astype("string").str.strip()
-
-    normalized = (
-        values
-        .str.lower()
-        .str.replace(r"[\s_-]+", " ", regex=True)
-    )
-
-    result = normalized.map(mapping)
-
-    # Preserve unknown categories instead of deleting them.
-    result = result.fillna(values)
-
-    return result
-
 
 def standardize_categories(data):
 
-    # City name variations.
-    city_mapping = {
-        "blr": "Bengaluru",
-        "bengaluru": "Bengaluru",
-        "bangalore": "Bengaluru",
-        "hyd": "Hyderabad",
-        "hyderabad": "Hyderabad",
-        "madras": "Chennai",
-        "chennai": "Chennai",
-        "mumbai": "Mumbai"
+    category_mappings = {
+        "restaurants": {
+            "cuisine": {
+                "biriyani": "Biryani",
+                "biryani": "Biryani",
+                "n. indian": "North Indian",
+                "north-indian": "North Indian",
+                "north indian": "North Indian",
+                "south-indian": "South Indian",
+                "south indian": "South Indian",
+                "dessert": "Desserts",
+                "desserts": "Desserts"
+            }
+        },
+
+        "delivery_partners": {
+            "vehicle_type": {
+                "bike": "Bike",
+                "motor bike": "Bike",
+                "motorbike": "Bike",
+                "activa": "Scooter",
+                "scooty": "Scooter",
+                "scooter": "Scooter",
+                "ev": "Electric Scooter",
+                "ev scooter": "Electric Scooter",
+                "e-scooter": "Electric Scooter",
+                "bicycle": "Bicycle",
+                "cycle": "Bicycle"
+            }
+        },
+
+        "orders": {
+            "payment_mode": {
+                "card": "Card",
+                "wallet": "Wallet",
+                "upi": "UPI",
+                "gpay": "Google Pay",
+                "google pay": "Google Pay",
+                "phonepe": "PhonePe",
+                "cash": "Cash",
+                "cod": "Cash on Delivery",
+                "cash on delivery": "Cash on Delivery",
+                "credit card": "Credit Card",
+                "debit card": "Debit Card",
+                "amazon pay": "Amazon Pay",
+                "paytm wallet": "Paytm Wallet"
+            },
+
+            "order_status": {
+                "delivered": "Delivered",
+                "cancelled": "Cancelled",
+                "canceled": "Cancelled",
+                "pending": "Pending",
+                "processing": "Processing",
+                "completed": "Completed"
+            }
+        }
     }
 
-    # Cuisine name variations.
-    cuisine_mapping = {
-        "biriyani": "Biryani",
-        "biryani": "Biryani",
-        "n indian": "North Indian",
-        "north indian": "North Indian",
-        "south indian": "South Indian"
-    }
+    for table_name, columns in category_mappings.items():
 
-    # Vehicle name variations.
-    vehicle_mapping = {
-        "bike": "Bike",
-        "motor bike": "Bike",
-        "motorbike": "Bike",
-        "activa": "Scooter",
-        "scooty": "Scooter",
-        "ev": "Electric Scooter",
-        "ev scooter": "Electric Scooter",
-        "e scooter": "Electric Scooter",
-        "e-scooter": "Electric Scooter"
-    }
+        for column_name, mapping in columns.items():
 
-    # Payment method variations.
-    payment_mapping = {
-        "upi": "UPI",
-        "gpay": "Google Pay",
-        "google pay": "Google Pay",
-        "phonepe": "PhonePe",
-        "cash": "Cash",
-        "cod": "Cash on Delivery",
-        "cash on delivery": "Cash on Delivery",
-        "credit card": "Credit Card",
-        "debit card": "Debit Card"
-    }
+            if column_name not in data[table_name].columns:
+                continue
 
-    # Standardize cities.
-    data["areas"]["city"] = standardize_category(
-        data["areas"]["city"],
-        city_mapping
-    )
+            data[table_name][column_name] = (
+                data[table_name][column_name]
+                .apply(
+                    lambda value: mapping.get(
+                        str(value).strip().lower(),
+                        str(value).strip()
+                    ) if pd.notna(value) else value
+                )
+            )
 
-    # Standardize cuisines.
-    data["restaurants"]["cuisine"] = standardize_category(
-        data["restaurants"]["cuisine"],
-        cuisine_mapping
-    )
-
-    # Standardize vehicles.
-    data["delivery_partners"]["vehicle_type"] = (
-        standardize_category(
-            data["delivery_partners"]["vehicle_type"],
-            vehicle_mapping
-        )
-    )
-
-    # Standardize payment methods.
-    data["orders"]["payment_mode"] = standardize_category(
-        data["orders"]["payment_mode"],
-        payment_mapping
-    )
-
-    # Standardize status capitalization without
-    # merging different business statuses.
-    data["orders"]["order_status"] = (
-        data["orders"]["order_status"]
-        .astype("string")
-        .str.strip()
-        .str.lower()
-        .str.title()
-    )
+            print(
+                f"Standardized {table_name}.{column_name}"
+            )
 
     return data
+
+def verify_categories(data):
+
+    columns_to_check = {
+        "restaurants": ["cuisine"],
+        "delivery_partners": ["vehicle_type"],
+        "orders": ["payment_mode", "order_status"]
+    }
+
+    print("\n========== CATEGORY VERIFICATION ==========")
+
+    for table_name, columns in columns_to_check.items():
+
+        for column in columns:
+
+            print(f"\n{table_name}.{column}")
+
+            print(
+                data[table_name][column]
+                .value_counts(dropna=False)
+                .to_string()
+            )
+
+    print("\n========== VERIFICATION COMPLETED ==========")
+
+
 
 
 # ============================================================
 # 8. CONVERT DATES AND NUMERIC VALUES
 # ============================================================
 
+
 def convert_data_types(data):
 
+    # All date columns across the six tables.
     date_columns = {
         "areas": [],
-        "restaurants": ["onboard_date"],
-        "delivery_partners": ["join_date"],
-        "customers": ["signup_date"],
-        "orders": ["order_datetime"],
-        "feedback": ["feedback_date"]
+
+        "restaurants": [
+            "onboard_date"
+        ],
+
+        "delivery_partners": [
+            "join_date"
+        ],
+
+        "customers": [
+            "signup_date"
+        ],
+
+        "orders": [
+            "order_datetime"
+        ],
+
+        "feedback": [
+            "feedback_date"
+        ]
     }
 
+    # Numeric columns.
     numeric_columns = {
-        "restaurants": ["rating"],
-        "orders": ["order_amount", "delivery_minutes"],
-        "feedback": ["rating"]
+        "restaurants": [
+            "rating"
+        ],
+
+        "orders": [
+            "order_amount",
+            "delivery_minutes"
+        ],
+
+        "feedback": [
+            "rating"
+        ]
     }
 
+    # Convert mixed date formats.
     for table_name, columns in date_columns.items():
 
         for column in columns:
 
-            data[table_name][column] = pd.to_datetime(
-                data[table_name][column],
-                errors="coerce",
-                dayfirst=True
-            )
+            original = data[table_name][column].copy()
 
-    for table_name, columns in numeric_columns.items():
-
-        for column in columns:
-
-            data[table_name][column] = pd.to_numeric(
-                data[table_name][column],
+            converted = pd.to_datetime(
+                original,
+                format="mixed",
+                dayfirst=True,
                 errors="coerce"
             )
 
+            # Identify values that failed conversion.
+            invalid_dates = original[
+                original.notna() & converted.isna()
+            ]
+
+            if not invalid_dates.empty:
+
+                print(
+                    f"\nInvalid dates in {table_name}.{column}:"
+                )
+
+                print(invalid_dates.unique()[:20])
+
+            data[table_name][column] = converted
+
+            print(
+                f"{table_name}.{column}: "
+                f"{converted.isna().sum()} missing dates"
+            )
+
+    # Convert numeric columns.
+    
+    for table_name, columns in numeric_columns.items():
+        for column in columns:
+            original = data[table_name][column].copy()
+
+            if column == "order_amount":
+                # Remove currency labels and thousands separators.
+                cleaned = (
+                    original.astype("string")
+                    .str.replace(r"(?i)\b(?:rs\.?|inr)\s*", "", regex=True)
+                    .str.replace(",", "", regex=False)
+                    .str.strip()
+                )
+                converted = pd.to_numeric(cleaned, errors="coerce")
+
+            elif column == "delivery_minutes":
+                # Extract the numeric duration from values like
+                # "18 min", "26m", and "26 mins".
+                cleaned = (
+                    original.astype("string")
+                    .str.extract(r"(-?\d+(?:\.\d+)?)", expand=False)
+                )
+                converted = pd.to_numeric(cleaned, errors="coerce")
+
+            else:
+                converted = pd.to_numeric(original, errors="coerce")
+
+            invalid_values = original[
+                original.notna() & converted.isna()
+            ]
+
+            if not invalid_values.empty:
+                print(f"\nInvalid values in {table_name}.{column}:")
+                print(invalid_values.unique()[:20])
+
+            data[table_name][column] = converted
+
+            print(
+                f"{table_name}.{column}: "
+                f"{converted.isna().sum()} missing values"
+            )
+
     return data
+
+
 
 
 # ============================================================
@@ -397,6 +490,17 @@ def remove_missing_mandatory_values(data):
 
     for table_name, columns in mandatory_columns.items():
 
+        print(f"\nChecking mandatory columns in: {table_name}")
+
+        print("Missing values by column:")
+
+        print(data[table_name][columns].isna().sum())
+
+        print(
+            "Rows having at least one missing mandatory value:",
+            data[table_name][columns].isna().any(axis=1).sum()
+        )
+
         before = len(data[table_name])
 
         data[table_name] = data[table_name].dropna(
@@ -411,7 +515,6 @@ def remove_missing_mandatory_values(data):
         )
 
     return data
-
 
 # ============================================================
 # 10. VALIDATE FOREIGN KEY RELATIONSHIPS
@@ -786,6 +889,19 @@ def main():
 
     data = load_data()
 
+# Standardize coupon codes before duplicate detection.
+    if "coupon_code" in data["orders"].columns:
+
+        data["orders"]["coupon_code"] = (
+            data["orders"]["coupon_code"]
+            .astype("string")
+            .str.strip()
+            .str.upper()
+        )
+
+        print("Standardized orders.coupon_code")
+
+
     # Standardize all tables.
     for table_name in data:
 
@@ -804,6 +920,7 @@ def main():
 
     # Standardize category values.
     data = standardize_categories(data)
+    verify_categories(data)
 
     # Convert dates and numbers.
     data = convert_data_types(data)
