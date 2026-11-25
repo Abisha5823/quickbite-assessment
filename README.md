@@ -5,6 +5,7 @@ I started by opening the given Excel file and going through all six tables: orde
 I checked the columns, sample data, data types, and IDs to understand what each table contained and how they were connected. I also looked at how the IDs, such as customer_id, restaurant_id, area_id, partner_id, and order_id, were used to link the tables.
 
 This helped me understand the data and decide how to combine the tables for analysis.
+
 2. Data Issues I Found and Fixed
 Before starting the analysis, I checked the data for errors and inconsistencies.
 - Duplicate records: I found repeated rows and duplicate IDs. I removed exact duplicates and checked duplicate IDs to avoid incorrect records.
