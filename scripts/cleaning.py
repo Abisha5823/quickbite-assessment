@@ -1,45 +1,20 @@
-
 from pathlib import Path
-
-import numpy as np
 import pandas as pd
-
-
-# ============================================================
-# 1. PROJECT PATHS AND CONFIGURATION
-# ============================================================
-
+# Project folders and files
 BASE_DIR = Path(__file__).resolve().parents[1]
-
 INPUT_FILE = BASE_DIR / "data" / "QuickBite_Assessment.xlsx"
-
 OUTPUT_DIR = BASE_DIR / "cleaned_data"
-
 CLEANED_FILE = OUTPUT_DIR / "Quick_Bite_Data_Cleaning.xlsx"
-
 COMBINED_FILE = OUTPUT_DIR / "Quick_Bite_Combined_Data.xlsx"
-
 DUPLICATE_REVIEW_FILE = OUTPUT_DIR / "Duplicate_ID_Review.xlsx"
+DUPLICATE_REVIEW = []
 
-
-# ============================================================
-# 2. LOAD ALL SIX TABLES
-# ============================================================
-
+# 1. Load the six sheets from Excel
 def load_data():
-
     if not INPUT_FILE.exists():
-        raise FileNotFoundError(
-            f"Input file not found: {INPUT_FILE}"
-        )
-
+        raise FileNotFoundError("Input file not found: " + str(INPUT_FILE))
     print("Loading QuickBite workbook...")
-
-    sheets = pd.read_excel(
-        INPUT_FILE,
-        sheet_name=None
-    )
-
+    sheets = pd.read_excel(INPUT_FILE, sheet_name=None)
     required_sheets = [
         "orders",
         "customers",
@@ -48,28 +23,17 @@ def load_data():
         "delivery_partners",
         "feedback"
     ]
-
-    missing_sheets = set(required_sheets) - set(sheets)
-
+    missing_sheets = set(required_sheets) - set(sheets.keys())
     if missing_sheets:
-        raise ValueError(
-            f"Missing sheets: {missing_sheets}"
-        )
-
-    return {
-        name: sheets[name].copy()
-        for name in required_sheets
-    }
-
-
-# ============================================================
-# 3. STANDARDIZE COLUMN NAMES
-# ============================================================
-
+        raise ValueError("Missing sheets: " + str(missing_sheets))
+    data = {}
+    for name in required_sheets:
+        data[name] = sheets[name].copy()
+    return data
+    
+# 2. Make column names consistent
 def standardize_columns(df):
-
     df = df.copy()
-
     df.columns = (
         df.columns
         .str.strip()
@@ -77,132 +41,66 @@ def standardize_columns(df):
         .str.replace(r"[^a-z0-9]+", "_", regex=True)
         .str.strip("_")
     )
-
     return df
 
-
-# ============================================================
-# 4. STANDARDIZE TEXT VALUES
-# ============================================================
-
+# 3. Remove extra spaces from text columns
 def clean_text_values(df):
-
     df = df.copy()
-
     text_columns = df.select_dtypes(
         include=["object", "string"]
     ).columns
-
     for column in text_columns:
-
         df[column] = (
             df[column]
             .astype("string")
             .str.strip()
             .replace("", pd.NA)
         )
-
     return df
-
-
-# ============================================================
-# 5. REMOVE EXACT DUPLICATES
-# ============================================================
-
+# 4. Remove exact duplicate rows
 def remove_exact_duplicates(df, table_name):
-
     before = len(df)
-
     df = df.drop_duplicates().copy()
-
     removed = before - len(df)
-
-    print(
-        f"{table_name}: Removed {removed} exact duplicate rows."
-    )
-
+    print(table_name, "- Removed exact duplicate rows:", removed)
     return df
 
-
-# ============================================================
-# 6. HANDLE DUPLICATE PRIMARY KEYS
-# ============================================================
-
-DUPLICATE_REVIEW = []
-
-
+# 5. Handle duplicate primary keys
 def clean_primary_key(df, key_column, table_name):
-
     global DUPLICATE_REVIEW
-
     df = df.copy()
-
-    # Remove records without a primary key.
+    # A primary key should not be empty.
     df = df.dropna(subset=[key_column])
-
-    duplicated = df[
-        df.duplicated(
-            subset=[key_column],
-            keep=False
-        )
+    duplicate_rows = df[
+        df.duplicated(subset=[key_column], keep=False)
     ].copy()
-
-    if duplicated.empty:
+    if duplicate_rows.empty:
         return df
-
-    # Identify groups containing conflicting records.
-    for key, group in duplicated.groupby(
-        key_column,
-        sort=False
-    ):
-
+    # Save conflicting records 
+    for key, group in duplicate_rows.groupby(key_column, sort=False):
         if len(group.drop_duplicates()) > 1:
-
             review = group.copy()
-
-            review.insert(
-                0,
-                "table_name",
-                table_name
-            )
-
+            review.insert(0, "table_name", table_name)
             DUPLICATE_REVIEW.append(review)
-
-    # Prefer the most complete record for each key.
-    # If completeness is equal, retain the first source record.
-
+    # Keep the record that has more filled values.
+    # If two records have the same completeness, keep the first one.
     df["_completeness"] = df.notna().sum(axis=1)
-
     df["_source_order"] = range(len(df))
-
     df = df.sort_values(
         by=["_completeness", "_source_order"],
         ascending=[False, True]
     )
-
     df = df.drop_duplicates(
         subset=[key_column],
         keep="first"
     )
-
     df = df.drop(
         columns=["_completeness", "_source_order"]
     )
-
-    print(
-        f"{table_name}: Primary key duplicates resolved."
-    )
-
+    print(table_name, "- Primary key duplicates checked.")
     return df
-
-
-# ============================================================
-# 7. STANDARDIZE CATEGORY VALUES
-# ============================================================
-
-
+# 6. Standardize category names
 def standardize_categories(data):
-
     category_mappings = {
         "restaurants": {
             "cuisine": {
@@ -217,7 +115,6 @@ def standardize_categories(data):
                 "desserts": "Desserts"
             }
         },
-
         "delivery_partners": {
             "vehicle_type": {
                 "bike": "Bike",
@@ -233,7 +130,6 @@ def standardize_categories(data):
                 "cycle": "Bicycle"
             }
         },
-
         "orders": {
             "payment_mode": {
                 "card": "Card",
@@ -250,7 +146,6 @@ def standardize_categories(data):
                 "amazon pay": "Amazon Pay",
                 "paytm wallet": "Paytm Wallet"
             },
-
             "order_status": {
                 "delivered": "Delivered",
                 "cancelled": "Cancelled",
@@ -261,7 +156,6 @@ def standardize_categories(data):
             }
         }
     }
-
     for table_name, columns in category_mappings.items():
 
         for column_name, mapping in columns.items():
@@ -270,21 +164,17 @@ def standardize_categories(data):
                 continue
 
             data[table_name][column_name] = (
-                data[table_name][column_name]
-                .apply(
+                data[table_name][column_name].apply(
                     lambda value: mapping.get(
                         str(value).strip().lower(),
                         str(value).strip()
                     ) if pd.notna(value) else value
                 )
             )
-
-            print(
-                f"Standardized {table_name}.{column_name}"
-            )
+            print("Standardized", table_name + "." + column_name)
 
     return data
-
+# 7. Check the category values after standardization
 def verify_categories(data):
 
     columns_to_check = {
@@ -292,187 +182,121 @@ def verify_categories(data):
         "delivery_partners": ["vehicle_type"],
         "orders": ["payment_mode", "order_status"]
     }
-
-    print("\n========== CATEGORY VERIFICATION ==========")
-
+    print("\n CATEGORY VERIFICATION")
     for table_name, columns in columns_to_check.items():
-
         for column in columns:
-
-            print(f"\n{table_name}.{column}")
-
+            print("\n" + table_name + "." + column)
             print(
                 data[table_name][column]
                 .value_counts(dropna=False)
                 .to_string()
             )
-
-    print("\n========== VERIFICATION COMPLETED ==========")
-
-
-
-
-# ============================================================
-# 8. CONVERT DATES AND NUMERIC VALUES
-# ============================================================
-
-
+    print("\nCategory checking completed.")
+# 8. Convert date and numeric columns
 def convert_data_types(data):
-
-    # All date columns across the six tables.
     date_columns = {
         "areas": [],
-
-        "restaurants": [
-            "onboard_date"
-        ],
-
-        "delivery_partners": [
-            "join_date"
-        ],
-
-        "customers": [
-            "signup_date"
-        ],
-
-        "orders": [
-            "order_datetime"
-        ],
-
-        "feedback": [
-            "feedback_date"
-        ]
+        "restaurants": ["onboard_date"],
+        "delivery_partners": ["join_date"],
+        "customers": ["signup_date"],
+        "orders": ["order_datetime"],
+        "feedback": ["feedback_date"]
     }
-
-    # Numeric columns.
     numeric_columns = {
-        "restaurants": [
-            "rating"
-        ],
-
-        "orders": [
-            "order_amount",
-            "delivery_minutes"
-        ],
-
-        "feedback": [
-            "rating"
-        ]
+        "restaurants": ["rating"],
+        "orders": ["order_amount", "delivery_minutes"],
+        "feedback": ["rating"]
     }
-
-    # Convert mixed date formats.
+    # Convert date columns.
     for table_name, columns in date_columns.items():
-
         for column in columns:
-
             original = data[table_name][column].copy()
-
             converted = pd.to_datetime(
                 original,
                 format="mixed",
                 dayfirst=True,
                 errors="coerce"
             )
-
-            # Identify values that failed conversion.
             invalid_dates = original[
                 original.notna() & converted.isna()
             ]
-
             if not invalid_dates.empty:
-
-                print(
-                    f"\nInvalid dates in {table_name}.{column}:"
-                )
-
+                print("\nInvalid dates in", table_name + "." + column)
                 print(invalid_dates.unique()[:20])
-
             data[table_name][column] = converted
-
             print(
-                f"{table_name}.{column}: "
-                f"{converted.isna().sum()} missing dates"
+                table_name + "." + column,
+                "- Missing dates:",
+                converted.isna().sum()
             )
-
     # Convert numeric columns.
-    
     for table_name, columns in numeric_columns.items():
         for column in columns:
             original = data[table_name][column].copy()
-
             if column == "order_amount":
-                # Remove currency labels and thousands separators.
+                # Remove currency names and commas.
                 cleaned = (
                     original.astype("string")
-                    .str.replace(r"(?i)\b(?:rs\.?|inr)\s*", "", regex=True)
+                    .str.replace(
+                        r"(?i)\b(?:rs\.?|inr)\s*",
+                        "",
+                        regex=True
+                    )
                     .str.replace(",", "", regex=False)
                     .str.strip()
                 )
-                converted = pd.to_numeric(cleaned, errors="coerce")
-
-            elif column == "delivery_minutes":
-                # Extract the numeric duration from values like
-                # "18 min", "26m", and "26 mins".
-                cleaned = (
-                    original.astype("string")
-                    .str.extract(r"(-?\d+(?:\.\d+)?)", expand=False)
+                converted = pd.to_numeric(
+                    cleaned,
+                    errors="coerce"
                 )
-                converted = pd.to_numeric(cleaned, errors="coerce")
-
+            elif column == "delivery_minutes":
+                # Get the number from values like "18 min" or "26m".
+                cleaned = original.astype("string").str.extract(
+                    r"(-?\d+(?:\.\d+)?)",
+                    expand=False
+                )
+                converted = pd.to_numeric(
+                    cleaned,
+                    errors="coerce"
+                )
             else:
-                converted = pd.to_numeric(original, errors="coerce")
-
+                converted = pd.to_numeric(
+                    original,
+                    errors="coerce"
+                )
             invalid_values = original[
                 original.notna() & converted.isna()
             ]
-
             if not invalid_values.empty:
-                print(f"\nInvalid values in {table_name}.{column}:")
+                print("\nInvalid values in", table_name + "." + column)
                 print(invalid_values.unique()[:20])
-
             data[table_name][column] = converted
-
             print(
-                f"{table_name}.{column}: "
-                f"{converted.isna().sum()} missing values"
+                table_name + "." + column,
+                "- Missing values:",
+                converted.isna().sum()
             )
-
     return data
 
-
-
-
-# ============================================================
-# 9. REMOVE ROWS WITH MISSING MANDATORY DATA
-# ============================================================
-
+# 9. Remove rows with missing mandatory values
 def remove_missing_mandatory_values(data):
 
     mandatory_columns = {
-
-        "areas": [
-            "area_id",
-            "area_name",
-            "city"
-        ],
-
+        "areas": ["area_id", "area_name", "city"],
         "restaurants": [
             "restaurant_id",
             "restaurant_name",
             "area_id",
             "cuisine"
         ],
-
         "delivery_partners": [
             "partner_id",
             "partner_name"
         ],
-
         "customers": [
             "customer_id",
             "customer_name"
         ],
-
         "orders": [
             "order_id",
             "customer_id",
@@ -481,111 +305,57 @@ def remove_missing_mandatory_values(data):
             "order_amount",
             "order_status"
         ],
-
-        "feedback": [
-            "feedback_id",
-            "order_id"
-        ]
+        "feedback": ["feedback_id", "order_id"]
     }
-
     for table_name, columns in mandatory_columns.items():
-
-        print(f"\nChecking mandatory columns in: {table_name}")
-
-        print("Missing values by column:")
-
+        print("\nChecking", table_name)
+        print("Missing values:")
         print(data[table_name][columns].isna().sum())
-
-        print(
-            "Rows having at least one missing mandatory value:",
-            data[table_name][columns].isna().any(axis=1).sum()
-        )
-
+        missing_rows = data[table_name][columns].isna().any(axis=1).sum()
+        print("Rows with missing mandatory values:", missing_rows)
         before = len(data[table_name])
-
         data[table_name] = data[table_name].dropna(
             subset=columns
         ).copy()
-
         removed = before - len(data[table_name])
-
-        print(
-            f"{table_name}: Removed {removed} rows "
-            "with missing mandatory values."
-        )
-
+        print("Rows removed:", removed)
     return data
 
-# ============================================================
-# 10. VALIDATE FOREIGN KEY RELATIONSHIPS
-# ============================================================
-
+# 10. Check the relationships between tables
 def validate_relationships(data):
-
-    # Areas referenced by restaurants.
-    valid_area_ids = set(
-        data["areas"]["area_id"]
-    )
-
-    # Remove restaurants whose area does not exist.
+    valid_area_ids = set(data["areas"]["area_id"])
+    # Remove restaurants linked to areas that do not exist.
     data["restaurants"] = data["restaurants"][
         data["restaurants"]["area_id"].isin(valid_area_ids)
     ].copy()
-
-    # Customer area is optional.
-    # Invalid customer area references become missing.
+    # Customer area is optional, so invalid values are made missing.
     data["customers"].loc[
         ~data["customers"]["area_id"].isin(valid_area_ids),
         "area_id"
     ] = pd.NA
-
-    valid_customer_ids = set(
-        data["customers"]["customer_id"]
-    )
-
-    valid_restaurant_ids = set(
-        data["restaurants"]["restaurant_id"]
-    )
-
-    valid_partner_ids = set(
-        data["delivery_partners"]["partner_id"]
-    )
-
-    # Orders require valid customer and restaurant records.
+    valid_customer_ids = set(data["customers"]["customer_id"])
+    valid_restaurant_ids = set(data["restaurants"]["restaurant_id"])
+    valid_partner_ids = set(data["delivery_partners"]["partner_id"])
+    # Orders must have a valid customer and restaurant.
     data["orders"] = data["orders"][
         data["orders"]["customer_id"].isin(valid_customer_ids)
         &
         data["orders"]["restaurant_id"].isin(valid_restaurant_ids)
     ].copy()
-
-    # A delivery partner may be missing for cancelled
-    # or otherwise undelivered orders.
-    # Invalid partner references are set to missing.
+    # Partner details can be missing for some orders.
     data["orders"].loc[
         ~data["orders"]["partner_id"].isin(valid_partner_ids),
         "partner_id"
     ] = pd.NA
-
     # Feedback must belong to an existing order.
-    valid_order_ids = set(
-        data["orders"]["order_id"]
-    )
-
+    valid_order_ids = set(data["orders"]["order_id"])
     data["feedback"] = data["feedback"][
         data["feedback"]["order_id"].isin(valid_order_ids)
     ].copy()
-
-    print("Foreign key validation completed.")
-
+    print("\nForeign key checking completed.")
     return data
-
-
-# ============================================================
-# 11. FINAL PRIMARY KEY VALIDATION
-# ============================================================
-
+# 11. Check primary keys after cleaning
 def validate_primary_keys(data):
-
     primary_keys = {
         "areas": "area_id",
         "restaurants": "restaurant_id",
@@ -594,40 +364,21 @@ def validate_primary_keys(data):
         "orders": "order_id",
         "feedback": "feedback_id"
     }
-
     for table_name, key in primary_keys.items():
-
         if data[table_name][key].isna().any():
-
-            raise ValueError(
-                f"{table_name} contains missing primary keys."
-            )
-
+            raise ValueError(table_name + " has missing primary keys.")
         if data[table_name][key].duplicated().any():
-
             raise ValueError(
-                f"{table_name} still contains duplicate {key} values."
+                table_name + " has duplicate values in " + key
             )
-
     print("All primary keys are valid.")
-
-
-# ============================================================
-# 12. EXPORT SIX CLEANED TABLES
-# ============================================================
-
+# 12. Save the six cleaned tables into one Excel workbook
 def export_cleaned_data(data):
-
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(
         CLEANED_FILE,
         engine="openpyxl"
     ) as writer:
-
         for table_name, df in data.items():
 
             df.to_excel(
@@ -635,34 +386,20 @@ def export_cleaned_data(data):
                 sheet_name=table_name,
                 index=False
             )
-
-    print("Cleaned workbook created:", CLEANED_FILE)
-
-
-# ============================================================
-# 13. AGGREGATE FEEDBACK
-# ============================================================
-
+    print("\nCleaned workbook created:", CLEANED_FILE)
+# 13. Combine feedback for each order
 def aggregate_feedback(feedback):
-
     def combine_comments(values):
-
         comments = (
-            values
-            .dropna()
+            values.dropna()
             .astype(str)
             .str.strip()
         )
-
         comments = comments[comments != ""]
-
         unique_comments = pd.unique(comments)
-
         if len(unique_comments) == 0:
             return pd.NA
-
         return " | ".join(unique_comments)
-
     feedback_summary = (
         feedback
         .groupby("order_id", as_index=False)
@@ -671,123 +408,74 @@ def aggregate_feedback(feedback):
             comment=("comment", combine_comments)
         )
     )
-
     return feedback_summary
-
-
-# ============================================================
-# 14. COMBINE ALL SIX TABLES
-# ============================================================
-
+# 14. Join the six tables into one dataset
 def create_combined_data(data):
-
     orders = data["orders"].copy()
-
     customers = data["customers"].copy()
-
     restaurants = data["restaurants"].copy()
-
     areas = data["areas"].copy()
-
     partners = data["delivery_partners"].copy()
-
     feedback = data["feedback"].copy()
-
-    # Aggregate feedback before joining.
-    # This prevents multiple feedback records from
-    # multiplying the number of order rows.
-
+    # First combine feedback so each order has only one feedback row.
     feedback_summary = aggregate_feedback(feedback)
-
-    # Join orders with customers.
+    # Add customer names.
     combined = orders.merge(
-        customers[
-            ["customer_id", "customer_name"]
-        ],
+        customers[["customer_id", "customer_name"]],
         on="customer_id",
         how="left",
         validate="many_to_one"
     )
-
-    # Join restaurants.
+    # Add restaurant details.
     combined = combined.merge(
         restaurants[
-            [
-                "restaurant_id",
-                "restaurant_name",
-                "area_id",
-                "cuisine"
-            ]
+            ["restaurant_id", "restaurant_name", "area_id", "cuisine"]
         ],
         on="restaurant_id",
         how="left",
         validate="many_to_one"
     )
-
-    # Join area information.
+    # Add area and city details.
     combined = combined.merge(
-        areas[
-            ["area_id", "area_name", "city"]
-        ],
+        areas[["area_id", "area_name", "city"]],
         on="area_id",
         how="left",
         validate="many_to_one"
     )
-
-    # Join delivery partner information.
+    # Add delivery partner details.
     combined = combined.merge(
-        partners[
-            ["partner_id", "partner_name", "vehicle_type"]
-        ],
+        partners[["partner_id", "partner_name", "vehicle_type"]],
         on="partner_id",
         how="left",
         validate="many_to_one"
     )
-
-    # Join aggregated feedback.
+    # Add feedback details.
     combined = combined.merge(
         feedback_summary,
         on="order_id",
         how="left",
         validate="one_to_one"
     )
-
-    # Derive date and time fields.
-    combined["order_date"] = (
-        combined["order_datetime"].dt.date
-    )
-
+    # Split order datetime into date, time and weekday.
+    combined["order_date"] = combined["order_datetime"].dt.date
     combined["order_time"] = (
         combined["order_datetime"].dt.strftime("%H:%M:%S")
     )
-
     combined["order_day"] = (
         combined["order_datetime"].dt.day_name()
     )
-
-    # Late delivery rule:
-    # More than 45 minutes = Late.
-    # Missing delivery duration = Unknown.
-
+    # More than 45 minutes means the order was late.
+    # Missing delivery time stays unknown.
     combined["is_late"] = pd.Series(
         pd.NA,
         index=combined.index,
         dtype="boolean"
     )
-
     known_duration = combined["delivery_minutes"].notna()
-
-    combined.loc[
-        known_duration,
-        "is_late"
-    ] = (
-        combined.loc[
-            known_duration,
-            "delivery_minutes"
-        ] > 45
+    combined.loc[known_duration, "is_late"] = (
+        combined.loc[known_duration, "delivery_minutes"] > 45
     )
-
-    # Keep the exact required output columns.
+    # only the columns required for the assessment.
     required_columns = [
         "order_id",
         "order_date",
@@ -809,126 +497,68 @@ def create_combined_data(data):
         "rating",
         "comment"
     ]
-
     combined = combined[required_columns].copy()
-
-    # Ensure one row per order.
+    # Check that every order appears only once.
     if combined["order_id"].duplicated().any():
-
-        raise ValueError(
-            "Combined data contains duplicate order IDs."
-        )
-
+        raise ValueError("Duplicate order IDs found in combined data.")
     if len(combined) != orders["order_id"].nunique():
-
-        raise ValueError(
-            "Combined data row count does not match unique orders."
-        )
-
+        raise ValueError("Combined row count does not match unique orders.")
     return combined
-
-
-# ============================================================
-# 15. EXPORT COMBINED DATA
-# ============================================================
-
+# 15. Save the combined dataset
 def export_combined_data(combined):
-
     with pd.ExcelWriter(
         COMBINED_FILE,
         engine="openpyxl"
     ) as writer:
-
         combined.to_excel(
             writer,
             sheet_name="Combined Data",
             index=False
         )
-
-    print("Combined workbook created:", COMBINED_FILE)
-
-    print("Combined rows:", len(combined))
-
-    print(
-        "Unique orders:",
-        combined["order_id"].nunique()
-    )
-
-
-# ============================================================
-# 16. EXPORT DUPLICATE ID REVIEW
-# ============================================================
-
+    print("\nCombined workbook created:", COMBINED_FILE)
+    print("Total combined rows:", len(combined))
+    print("Unique orders:", combined["order_id"].nunique())
+# 16. Save conflicting duplicate records for checking
 def export_duplicate_review():
-
     if DUPLICATE_REVIEW:
-
         review_df = pd.concat(
             DUPLICATE_REVIEW,
             ignore_index=True
         )
-
         review_df.to_excel(
             DUPLICATE_REVIEW_FILE,
             index=False
         )
-
-        print(
-            "Conflicting duplicate records saved to:",
-            DUPLICATE_REVIEW_FILE
-        )
-
-
-# ============================================================
-# 17. MAIN EXECUTION
-# ============================================================
-
+        print("Duplicate records saved for review:", DUPLICATE_REVIEW_FILE)
+# 17. Run all cleaning steps
 def main():
-
-    print("\n========== QUICKBITE DATA CLEANING ==========\n")
-
     data = load_data()
-
-# Standardize coupon codes before duplicate detection.
-    if "coupon_code" in data["orders"].columns:
-
-        data["orders"]["coupon_code"] = (
-            data["orders"]["coupon_code"]
-            .astype("string")
-            .str.strip()
-            .str.upper()
-        )
-
-        print("Standardized orders.coupon_code")
-
-
-    # Standardize all tables.
+    # Standardize columns and text in every table.
     for table_name in data:
+        data[table_name] = standardize_columns(data[table_name])
+        data[table_name] = clean_text_values(data[table_name])
+        # Standardize coupon codes before removing duplicates.
+        if table_name == "orders" and "coupon_code" in data[table_name].columns:
 
-        data[table_name] = standardize_columns(
-            data[table_name]
-        )
-
-        data[table_name] = clean_text_values(
-            data[table_name]
-        )
-
+            data[table_name]["coupon_code"] = (
+                data[table_name]["coupon_code"]
+                .astype("string")
+                .str.strip()
+                .str.upper()
+            )
+            print("Standardized coupon codes.")
         data[table_name] = remove_exact_duplicates(
             data[table_name],
             table_name
         )
-
-    # Standardize category values.
+    # Standardize categories and check the results.
     data = standardize_categories(data)
     verify_categories(data)
-
     # Convert dates and numbers.
     data = convert_data_types(data)
-
-    # Remove rows with missing mandatory values.
+    # Remove rows with missing important values.
     data = remove_missing_mandatory_values(data)
-
-    # Resolve duplicate primary keys.
+    # Check duplicate primary keys in all tables.
     primary_keys = {
         "areas": "area_id",
         "restaurants": "restaurant_id",
@@ -937,35 +567,24 @@ def main():
         "orders": "order_id",
         "feedback": "feedback_id"
     }
-
     for table_name, key in primary_keys.items():
-
         data[table_name] = clean_primary_key(
             data[table_name],
             key,
             table_name
         )
-
-    # Validate relationships.
+    # table relationships.
     data = validate_relationships(data)
-
-    # Final primary key validation.
+    # primary keys one final time.
     validate_primary_keys(data)
-
-    # Export six cleaned tables.
+    # Save cleaned tables.
     export_cleaned_data(data)
-
-    # Combine six tables.
+    # Combine all tables.
     combined = create_combined_data(data)
-
-    # Export combined dataset.
+    # Save combined data.
     export_combined_data(combined)
-
-    # Save conflicting duplicate records for review.
+    # Save duplicate records if any were found.
     export_duplicate_review()
-
     print("\n========== CLEANING COMPLETED ==========\n")
-
-
 if __name__ == "__main__":
     main()
